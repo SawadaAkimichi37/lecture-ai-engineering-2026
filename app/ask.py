@@ -16,6 +16,7 @@ from google import genai
 from google.genai import errors
 
 from app.config import MODEL, api_error_message, get_api_key
+import time 
 
 # 講座に固有の質問。正しい答えは data/glossary.json の homework-levels にある
 DEFAULT_QUESTION = "AIE2026の講座の宿題にある「3レベル」とは何ですか？"
@@ -23,6 +24,8 @@ DEFAULT_QUESTION = "AIE2026の講座の宿題にある「3レベル」とは何�
 
 def ask(question: str) -> str:
     client = genai.Client(api_key=get_api_key())
+    # 時間を計測
+    start = time.perf_counter()
     response = client.models.generate_content(model=MODEL, contents=question)
 
     usage = getattr(response, "usage_metadata", None)
@@ -32,8 +35,9 @@ def ask(question: str) -> str:
         print(f"[入力トークン数] {prompt_tokens if prompt_tokens is not None else 'N/A'}")
         print(f"[出力トークン数] {output_tokens if output_tokens is not None else 'N/A'}")
 
+    elapsed = time.perf_counter() -start
+    print(f"応答時間:{elapsed:.2f}秒")
     return response.text
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="素のLLMに質問する")
