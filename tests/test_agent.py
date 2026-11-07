@@ -18,7 +18,7 @@ def _parts(result, kind):
 
 
 def test_base_tools_are_registered_and_called():
-    model = TestModel()
+    model = TestModel(call_tools=["search_glossary", "get_lecture_summary", "make_quiz"])
     with agent.override(model=model):
         result = agent.run_sync("LoRAとは？")
 
@@ -37,3 +37,13 @@ def test_glossary_result_reaches_the_model():
         result = agent.run_sync("RAGとは？")
     returns = _parts(result, ToolReturnPart)
     assert returns and returns[0].tool_name == "search_glossary"
+
+
+def test_save_learning_log_requires_approval():
+    model = TestModel(call_tools=[])
+    with agent.override(model=model):
+        agent.run_sync("学習記録を保存して", model=model)
+
+    tools_seen = model.last_model_request_parameters.function_tools
+    save_tool = next(tool for tool in tools_seen if tool.name == "save_learning_log")
+    assert save_tool.kind == "unapproved"
