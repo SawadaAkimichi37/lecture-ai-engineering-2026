@@ -5,10 +5,13 @@
 """
 
 import json
+from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
+import random
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+LEARNING_LOG_DIR = Path(__file__).resolve().parent.parent / "learning_log"
 MAX_RESULTS = 3
 
 
@@ -77,3 +80,44 @@ def get_lecture_summary(lecture: int) -> str:
         available = sorted(p.stem for p in (DATA_DIR / "lectures").glob("*.md"))
         return f"第{lecture}回の要点はまだありません。用意されている回: {', '.join(available)}"
     return path.read_text(encoding="utf-8")
+
+
+def make_quiz(lecture: int) -> str:
+    """指定した講義から用語を1つ選び、問題文と正答を返す。
+
+    answerには用語自身を、relatedには関連用語を含める。
+    エージェントは出題時にanswerを表示せず、問題文だけを提示する。
+    """
+    if lecture < 1:
+        return "講義回は1以上の整数を指定してください。"
+
+    glossary = load_glossary()
+    hits = [e for e in glossary if e["lecture"] == lecture]
+    if not hits:
+        return "その講義には出題できる問題はありません。他の講義を指定してください。"
+
+    entry = random.choice(hits)
+    return json.dumps(
+        {
+            "question": f"{entry['definition']}を表す語句を回答してください。",
+            "lecture": entry["lecture"],
+            "answer": entry["term"],
+            "related": entry["related"],
+        },
+        ensure_ascii=False,
+    )
+
+
+def save_learning_log(entry: str) -> str:
+    """学習の記録を learning_log/ に Markdown ファイルとして保存する。
+
+    保存は取り消しにくい操作のため、このツールには利用者の承認が必要。
+    """
+    if not entry.strip():
+        return "学習の記録が空です。保存する内容を指定してください。"
+
+    LEARNING_LOG_DIR.mkdir(exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    path = LEARNING_LOG_DIR / f"{timestamp}.md"
+    path.write_text(entry.rstrip() + "\n", encoding="utf-8")
+    return f"学習の記録を保存しました: {path}"
