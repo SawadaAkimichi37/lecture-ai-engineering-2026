@@ -10,7 +10,7 @@ from functools import cache
 from pathlib import Path
 import random
 
-from app.config import api_error_message
+from app.config import TREE_DOCFIX, api_error_message
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 LEARNING_LOG_DIR = Path(__file__).resolve().parent.parent / "learning_log"
@@ -153,6 +153,13 @@ def browse_tree(node_id: str | None = None) -> str:
         return json.dumps(browse(node_id), ensure_ascii=False)
     except (ValueError, OSError) as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+if TREE_DOCFIX:
+    browse_tree.__doc__ = """子ページには、開くページを選ぶための候補文 preview（全文ではない）を返す。ページIDを指定すると、そのページの全文を node.content に返す。
+
+    最初はnode_idを省略する。続いて返されたIDを指定して目次をたどる。
+    """
 
 
 def search_graph(query: str) -> str:

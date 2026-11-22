@@ -22,6 +22,15 @@ RAG_TOP_K = 5
 GRAPH_START_K = 3
 GRAPH_HOPS = 2
 GRAPH_MAX_RESULTS = 10
+# 第5回宿題（発展）: Treeで子ページに付ける候補文の作り方。
+#   first: 本文の最初の1文（元の方式） / head: 先頭から上限文字数まで
+#   skip: 章名・見出し・飾りを除いて上限文字数まで / terms: そのページの特徴語を並べる
+TREE_PREVIEW = os.getenv("AIE_TREE_PREVIEW", "first")
+TREE_PREVIEW_CHARS = 100
+# 1にすると、候補文を preview 欄に分け（A）、指示文に候補文を根拠にしない旨を足す（B）。
+TREE_STRICT = os.getenv("AIE_TREE_STRICT") in ("1", "2")
+# 2にすると、さらにツールの説明と指示文の「先頭文」の記述を、候補文の実態に合わせて書き直す。
+TREE_DOCFIX = os.getenv("AIE_TREE_STRICT") == "2"
 EMBEDDING_MODEL = "gemini-embedding-001"
 EMBEDDING_DIMENSIONS = 768
 # 2,048トークンの上限に対し、タスク指定等の分を残す。超過時は切り捨てず停止する。
