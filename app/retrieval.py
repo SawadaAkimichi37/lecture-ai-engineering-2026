@@ -18,7 +18,72 @@ from app.config import (
     EMBEDDING_DIMENSIONS, EMBEDDING_MAX_TOKENS, EMBEDDING_MODEL,
     RAG_DB, RAG_DOCUMENT_IDS, RAG_SOURCE, RAG_TOP_K, RAG_TREE, get_api_key,
     RAG_GRAPH, GRAPH_START_K, GRAPH_HOPS, GRAPH_MAX_RESULTS,
+    TREE_PREVIEW, TREE_PREVIEW_CHARS, TREE_STRICT,
 )
+
+SENTENCE_BREAK = r"(?<=[。！？])|\n"
+TERM_PATTERN = re.compile(r"[ァ-ヴー]{2,}|[一-龥々]{2,}|[A-Za-z][A-Za-z0-9\-]+")
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"\s+", "", text)
+
+
+def _pieces(text: str) -> list[str]:
+    return [piece.strip() for piece in re.split(SENTENCE_BREAK, text.strip()) if piece.strip()]
+
+
+def _fit(parts: list[str], limit: int = TREE_PREVIEW_CHARS, sep: str = " ") -> str:
+    """部品を順につなぎ、上限文字数に収める。"""
+    preview = ""
+    for part in parts:
+        candidate = f"{preview}{sep}{part}" if preview else part
+        if len(candidate) > limit:
+            return preview or part[:limit]
+        preview = candidate
+    return preview
+
+
+def make_previews(page_list: list[dict], mode: str = TREE_PREVIEW) -> dict[str, str]:
+    """同じ親の子ページ群に、指定した方式で候補文を付ける（本文は変えない）。"""
+    pieces = {page["page_id"]: _pieces(page["content"]) for page in page_list}
+    if mode == "first":
+        return {pid: parts[0] if parts else "" for pid, parts in pieces.items()}
+    if mode == "head":
+        return {pid: _fit(parts) for pid, parts in pieces.items()}
+    if mode == "skip":
+        # 兄弟ページにも出てくる部品（章名・ラベル・飾り）は、このページを見分ける材料にならない。
+        shared = defaultdict(int)
+        for parts in pieces.values():
+            for part in set(parts):
+                shared[part] += 1
+        previews = {}
+        for page in page_list:
+            title = _squash(page["title"])
+            kept = [part for part in pieces[page["page_id"]]
+                    if shared[part] == 1 and _squash(part) not in title and not part.startswith("©")]
+            previews[page["page_id"]] = _fit(kept)
+        return previews
+    if mode == "terms":
+        # ページ内で多く、兄弟ページでは少ない語（TF-IDFと同じ考え方）。見出しにある語は除く。
+        counts = {page["page_id"]: defaultdict(int) for page in page_list}
+        for page in page_list:
+            for term in TERM_PATTERN.findall(page["content"]):
+                counts[page["page_id"]][term] += 1
+        df = defaultdict(int)
+        for terms in counts.values():
+            for term in terms:
+                df[term] += 1
+        n = len(page_list)
+        previews = {}
+        for page in page_list:
+            title = _squash(page["title"])
+            scored = sorted(((tf * math.log((n + 1) / (df[term] + 0.5)), term)
+                             for term, tf in counts[page["page_id"]].items() if term not in title),
+                            key=lambda pair: (-pair[0], pair[1]))
+            previews[page["page_id"]] = _fit([term for _, term in scored], sep="、")
+        return previews
+    raise ValueError(f"候補文の方式が不明です: {mode}")
 
 
 def get_all_materials() -> str:
@@ -56,21 +121,26 @@ def browse_tree(node_id: str | None = None) -> dict:
     node_id = node_id or tree["id"]
     pages = {page["page_id"]: page for page in load_pages(RAG_SOURCE)}
 
-    def describe(node, full=False):
+    def describe(node, previews=None):
         info = {key: node[key] for key in ("id", "kind", "title")}
         if node["kind"] == "page":
             info.update({key: value for key, value in pages[node["id"]].items() if key != "page_id"})
-            if not full:
-                info["content"] = re.split(r"(?<=[。！？])|\n", info["content"].strip(), maxsplit=1)[0]
+            if previews is not None and TREE_STRICT:
+                del info["content"]
+                info["preview"] = previews[node["id"]]
+            elif previews is not None:
+                info["content"] = previews[node["id"]]
         return info
 
     remaining = [tree]
     while remaining:
         node = remaining.pop()
         if node["id"] == node_id:
+            children = node.get("children", [])
+            previews = make_previews([pages[child["id"]] for child in children if child["kind"] == "page"])
             return {
-                "node": describe(node, full=True),
-                "children": [describe(child) for child in node.get("children", [])],
+                "node": describe(node),
+                "children": [describe(child, previews) for child in children],
             }
         remaining.extend(node.get("children", []))
     raise ValueError("対象の目次ノードが見つかりません。")
